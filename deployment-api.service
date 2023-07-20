@@ -1,0 +1,15 @@
+[Unit]
+Description=deploy-service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=deployment-api
+WorkingDirectory=/home/deployment-api/DeploymentAPI
+ExecStart=/home/deployment-api/DeploymentAPI/DeploymentAPI --urls="http://0.0.0.0:5000"
+
+[Install]
+WantedBy=multi-user.target
