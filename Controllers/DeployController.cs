@@ -19,32 +19,32 @@ public class DeployController : ControllerBase
     }
 
     [HttpPost]
-    public IResult RemoveSwarmConfigs([FromForm] IFormCollection form)
+    public IResult RemoveSwarmConfigs([FromForm] SwarmConfigViewModel model)
     {
-        var filter = NormalizeFormVariable(form, "configName");
+        var filter = model.ConfigName.Replace(" ", string.Empty);
         var listCommand = $"docker config ls --format {{{{.Name}}}} | grep -e {filter}*";
 
         var configs = commandService.Execute(listCommand);
-        
+
         IResult result;
-        
+
         if (configs.HasError())
         {
-            result = Results.Content(LogError(form, configs));
+            result = Results.Content(LogError(model, configs));
         }
         else
         {
             var configNames = configs.Output.Replace("\r\n", "").Replace("\n", "");
             var removeCommand = $"docker config rm {configNames}";
-            result = ResponeFromCommand(removeCommand, form);
+            result = ResponeFromCommand(removeCommand, model);
         }
-        
+
         return result;
     }
 
-    private static string? NormalizeFormVariable(IFormCollection form, string name) => form[name].ToString().Replace(" ", string.Empty); 
+    private static string NormalizeText(string text) => text.Replace(" ", string.Empty);
 
-    private IResult ResponeFromCommand(string command, IFormCollection form)
+    private IResult ResponeFromCommand(string command, BaseViewModel model)
     {
         var result = commandService.Execute(command);
 
@@ -52,66 +52,75 @@ public class DeployController : ControllerBase
 
         if (result.HasError())
         {
-            responseText = LogError(form, result);
+            responseText = LogError(model, result);
         }
 
         return Results.Content(responseText);
     }
 
-    private static string LogError(IFormCollection form, CommandResult result)
+    private static string LogError(BaseViewModel model, CommandResult result)
     {
-        string responseText;
-        var pipelineId = NormalizeFormVariable(form, "pipelineId");
-        var host = NormalizeFormVariable(form, "host");
-        var env = NormalizeFormVariable(form, "env");
-
-        responseText = $"**[{env}|{host}|{pipelineId}]** {result.Error}\n- Output: {result.Output}";
+        var responseText = $"**[{model.Env}|{model.Host}|{model.PipelineId}]** {result.Error}\n- Output: {result.Output}";
 
         LogService.Error(responseText);
         return responseText;
     }
 
     [HttpPost]
-    public IResult LoginRegistry([FromForm] IFormCollection form)
+    public IResult LoginRegistry([FromForm] LoginRegistryViewModel model)
     {
-        var user = NormalizeFormVariable(form, "registryUser");
-        var password = NormalizeFormVariable(form, "registryPassword");
-        var url = NormalizeFormVariable(form, "registryUrl");
+        var user = NormalizeText(model.RegistryUser);
+        var password = NormalizeText(model.RegistryPassword);
+        var url = NormalizeText(model.RegistryUrl);
 
         var command = $"docker login -u {user} -p {password} ${url}";
 
-        return ResponeFromCommand(command, form);
+        return ResponeFromCommand(command, model);
     }
 
     [HttpPost]
-    public IResult PrepareFolderPermission([FromForm] IFormCollection form)
+    public IResult PrepareFolderPermission([FromForm] PrepareFolderPermissionViewModel model)
     {
-        var user = NormalizeFormVariable(form, "user");
-        var workingDirectory = NormalizeFormVariable(form, "workingDirectory");
-        var env = NormalizeFormVariable(form, "env");
+        var user = NormalizeText(model.User);
+        var workingDirectory = NormalizeText(model.WorkingDirectory);
+        var env = NormalizeText(model.Env);
 
         var command = $"mkdir -p {workingDirectory}/{env}/configs && chown ${user}:${user} -R ${workingDirectory} && chmod 755 -R ${workingDirectory}";
 
-        return ResponeFromCommand(command, form);
+        return ResponeFromCommand(command, model);
     }
 
     [HttpPost]
-    public IResult DeploySwarmService([FromForm] IFormCollection form)
+    public IResult DeploySwarmService([FromForm] DeploySwarmServiceViewModel model)
     {
-        var stack = NormalizeFormVariable(form, "stack");
-        var workingDirectory = NormalizeFormVariable(form, "workingDirectory");
-        var env = NormalizeFormVariable(form, "env");
+        var workingDirectory = NormalizeText(model.WorkingDirectory);
+        var stack = NormalizeText(model.Stack);
+        var env = NormalizeText(model.Env);
 
         var command = $"docker stack deploy --compose-file={workingDirectory}/{env}/docker-compose.yml --with-registry-auth {stack}";
 
-        return ResponeFromCommand(command, form);
+        return ResponeFromCommand(command, model);
     }
 
     [HttpPost]
-    public IResult Execute([FromForm] IFormCollection form)
-    {
-        var command = form["command"].ToString();
+    public IResult ExecuteCommand([FromForm] BaseViewModel model, [FromForm] string command)
+        => ResponeFromCommand(command, model);
 
-        return ResponeFromCommand(command, form);
+    [HttpPost]
+    public IResult SendFileToServer([FromForm] SendFileToServerViewModel model)
+    {
+        IResult result = TypedResults.BadRequest();
+        try
+        {
+            using var stream = System.IO.File.Create(model.RemotePath);
+            model.File?.CopyTo(stream);
+            result = TypedResults.Ok();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error($"**[{model.Host}|{model.Env}|{model.PipelineId}]** {ex.Message}", ex);
+        }
+
+        return result;
     }
 }
